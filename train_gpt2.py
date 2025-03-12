@@ -3,13 +3,13 @@ import math
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+import torch.optim.adamw
 
 batch_size = 64
 block_size = 256
 max_iters = 5000
 eval_interval = 500
 learning_rate = 3e-4
-device = 'mps' if torch.mps.is_available() else 'cpu'
 eval_iters = 200
 n_embd = 384
 n_head = 6
@@ -103,7 +103,10 @@ class GPT(nn.Module):
             x = block(x)
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)
-        return logits
+        loss = None
+        if targets is not None:
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+        return logits, loss
 
 
 
@@ -151,21 +154,54 @@ class GPT(nn.Module):
                     sd[k].copy_(sd_hf[k])
         return model
                 
+device = 'cpu'
+if torch.cuda.is_available():
+    device = 'cuda'
+elif hasattr(torch.backends,'mps') and torch.backends.mps.is_available():
+    device = 'mps'
+print(f"using device: {device}")
 
+import tiktoken
+enc = tiktoken.get_encoding('gpt2')
+
+with open('input.txt', 'r') as f:
+    text = f.read()
+text = text[:1000]
+# print(text[:100])
+tokens = enc.encode(text)
+B, T = 4, 32
+buf = torch.tensor(tokens[:B*T + 1])
+buf = buf.to(device)
+x = buf[:-1].view(B,T)
+y = buf[1:].view(B,T)
+
+model = GPT(GPTConfig())
+model.to(device)
+
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+for i in range(50):
+    optimizer.zero_grad()
+    logits, loss = model(x, y)
+    loss.backward()
+    optimizer.step()
+    print(f"step {i}, loss: {loss.item()}")
+
+
+import sys; sys.exit(0)
 
 num_return_sequences = 5
 max_length = 30
-model = GPT.from_pretrained('gpt2')
+# model = GPT.from_pretrained('gpt2')
+model = GPT(GPTConfig())
+model.to(device)
 print("didn't crash yet!")
-model.eval()
-model.to('mps')
 
 import tiktoken
 enc = tiktoken.get_encoding('gpt2')
 tokens = enc.encode("Hello, I'm a language model,")
 tokens = torch.tensor(tokens, dtype=torch.long)
 tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1)
-x = tokens.to('mps')
+x = tokens.to(device)
 
 torch.manual_seed(42)
 torch.mps.manual_seed(42)
