@@ -29,6 +29,7 @@ def evaluate(test_data, net):
     n_total = 0
     with torch.no_grad():
         for (x,y) in test_data:
+            #print(x.shape,y)
             outputs = net.forward(x.view(-1, 28*28))
             for i, output in enumerate(outputs):
                 if torch.argmax(output) == y[i]:
